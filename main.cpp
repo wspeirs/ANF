@@ -5,14 +5,23 @@
 using namespace std;
 
 int main() {
-    anf32 eq1('a');
-    anf32 eq2('b');
+    anf_c32 x('x');
+    anf_c32 y('y');
+    anf_c32 z('z');
 
-    cout << eq1 << endl;
-    cout << eq2 << endl;
+    // see http://en.wikipedia.org/wiki/Algebraic_normal_form#Performing_operations_within_algebraic_normal_form
+    //cout << x.OR(y.AND(z.NOT())) << endl;
 
-    cout << eq1.XOR(eq2) << endl;
-    cout << eq2.AND(eq2) << endl;
+    // this is just x XOR y
+    auto t = x.AND(y.NOT()).OR(x.NOT().AND(y));
+
+    cout << t << t.size() << endl;
+
+    /*
+    auto t = x.AND(y).XOR(y.AND(x));
+
+    cout << t << endl;
+    */
 
     return 0;
 }
