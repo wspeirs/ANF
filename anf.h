@@ -5,23 +5,18 @@
 #ifndef FLATTENER_ANF_H
 #define FLATTENER_ANF_H
 
-#define BOOST_POOL_NO_MT // disable mutex
-
-#include <boost/pool/pool_alloc.hpp>
-
 #include <unordered_set>
 #include <unordered_map>
 #include <functional>
 #include <vector>
-//#include <boost/dynamic_bitset.hpp>
 #include <bitset>
+#include <sstream>
 
-//using boost::dynamic_bitset;
 using namespace std;
 
 
 template<typename Symbol, size_t MaxVars>
-class Clause {
+struct Clause {
     typedef unordered_map<Symbol, size_t> VariableLookup;
 
     static VariableLookup var_lookup;
@@ -40,19 +35,41 @@ class Clause {
         auto bit_it = var_lookup.find(var);
 
         if(bit_it == var_lookup.end()) {
-            bit_it = var_lookup.emplace(var, var_count++)->first;
+            bit_it = var_lookup.emplace(var, var_count++).first;
         }
 
         bits.set(bit_it->second);
 
         hash = std::hash<Symbol>()(var);
     }
+
+    inline string to_string() const {
+        stringstream ss;
+
+        ss << '(';
+
+        for(size_t i=0; i < bits.size(); ++i) {
+            ss << var_lookup[bits[i]];
+        }
+
+        ss << ')';
+
+        return ss.str();
+    }
 };
 
+template<typename Symbol, size_t MaxVars>
+size_t Clause<Symbol, MaxVars>::var_count = 0;
+
+template<typename Symbol, size_t MaxVars>
+typename Clause<Symbol, MaxVars>::VariableLookup Clause<Symbol, MaxVars>::var_lookup;
 
 template<typename Symbol, size_t MaxVars>
 class basic_anf {
     friend class Clause<Symbol, MaxVars>;
+
+    template<typename S, size_t M>
+    friend ostream& operator<<(ostream &output, const basic_anf<S, M> &eq);
 
     typedef unordered_set<Clause<Symbol, MaxVars> > Equation;
 
@@ -62,11 +79,11 @@ class basic_anf {
 
 public:
     inline basic_anf() {
-        equation.insert(Clause<Symbol, MaxVars>());
+        equation.emplace(Clause<Symbol, MaxVars>());
     }
 
     basic_anf(const Symbol &var) {
-        equation.insert(Clause<Symbol, MaxVars>(var));
+        equation.emplace(Clause<Symbol, MaxVars>(var));
     }
 
     basic_anf* XOR(const basic_anf &eq) const {
@@ -96,10 +113,21 @@ public:
 };
 
 template<typename S, size_t M>
-inline bool operator==(const Clause<S, M> &lhs,
-                       const Clause<S, M> &rhs) {
+inline bool operator==(const Clause<S, M> &lhs, const Clause<S, M> &rhs) {
     return lhs.bits == rhs.bits;
 }
+
+template<typename S, size_t M>
+inline ostream& operator<<(ostream &output, const basic_anf<S, M> &eq) {
+    for(auto c : eq.equation) {
+        output << c.to_string() << " ^ ";
+    }
+
+    // output.seekp(output.tellp()-3); // remove the last ' ^ '
+
+    return output;
+}
+
 
 namespace std {
     template <typename Symbol, size_t MaxVars>
