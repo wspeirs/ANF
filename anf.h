@@ -19,40 +19,42 @@
 //using boost::dynamic_bitset;
 using namespace std;
 
+
+template<typename Symbol, size_t MaxVars>
+class Clause {
+    typedef unordered_map<Symbol, size_t> VariableLookup;
+
+    static VariableLookup var_lookup;
+    static size_t var_count;
+    bitset<MaxVars> bits;
+    size_t hash;
+
+    inline Clause(bitset<MaxVars> bits, size_t hash) : bits(bits), hash(hash) { }
+
+    template<typename S, size_t M>
+    friend bool operator==(const Clause<S, M> &lhs, const Clause<S, M> &rhs);
+
+    inline Clause() : bits(), hash(0) { }
+
+    inline Clause(const Symbol &var) {
+        auto bit_it = var_lookup.find(var);
+
+        if(bit_it == var_lookup.end()) {
+            bit_it = var_lookup.emplace(var, var_count++)->first;
+        }
+
+        bits.set(bit_it->second);
+
+        hash = std::hash<Symbol>()(var);
+    }
+};
+
+
 template<typename Symbol, size_t MaxVars>
 class basic_anf {
+    friend class Clause<Symbol, MaxVars>;
 
-    class Clause {
-        typedef unordered_map<Symbol, size_t> VariableLookup;
-
-    protected:
-        static VariableLookup var_lookup;
-        static size_t var_count;
-        bitset<MaxVars> bits;
-        size_t hash;
-
-        inline Clause(bitset<MaxVars> bits, size_t hash) : bits(bits), hash(hash) { }
-
-        template<typename V, size_t S>
-        friend bool operator==(const typename basic_anf<V, S>::Clause &lhs, const typename basic_anf<V, S>::Clause &rhs);
-
-        inline Clause() : bits(), hash(0) { }
-
-        inline Clause(const Symbol &var) {
-            auto bit_it = var_lookup.find(var);
-
-            if(bit_it == var_lookup.end()) {
-                bit_it = var_lookup.emplace(var, var_count++)->first;
-            }
-
-            bits.set(bit_it->second);
-
-            hash = std::hash<Symbol>()(var);
-        }
-    };
-
-
-    typedef unordered_set<Clause> Equation;
+    typedef unordered_set<Clause<Symbol, MaxVars> > Equation;
 
     Equation equation;
 
@@ -60,11 +62,11 @@ class basic_anf {
 
 public:
     inline basic_anf() {
-        equation.insert(Clause());
+        equation.insert(Clause<Symbol, MaxVars>());
     }
 
-    basic_anf(Symbol &var) {
-        equation.insert(Clause(var));
+    basic_anf(const Symbol &var) {
+        equation.insert(Clause<Symbol, MaxVars>(var));
     }
 
     basic_anf* XOR(const basic_anf &eq) const {
@@ -81,7 +83,7 @@ public:
 
         for(auto clause1 : equation) {
             for(auto clause2 : eq.equation) {
-                ret.emplace(Clause(clause1.bits | clause2.bits, clause1.hash ^ clause2.hash));
+                ret.emplace(Clause<Symbol, MaxVars>(clause1.bits | clause2.bits, clause1.hash ^ clause2.hash));
             }
         }
 
@@ -93,16 +95,16 @@ public:
     }
 };
 
-template<typename V, size_t S>
-inline bool operator==(const typename basic_anf<V, S>::Clause &lhs, const typename basic_anf<V, S>::Cause &rhs) {
+template<typename S, size_t M>
+inline bool operator==(const Clause<S, M> &lhs,
+                       const Clause<S, M> &rhs) {
     return lhs.bits == rhs.bits;
 }
 
 namespace std {
-    template<typename S, size_t V>
-    class hash<typename basic_anf<S, V>::Clause> {
-    public:
-        inline size_t operator()(const basic_anf<V, S>::Clause &clause) const {
+    template <typename Symbol, size_t MaxVars>
+    struct hash<Clause<Symbol, MaxVars> > {
+        inline size_t operator()(const Clause<Symbol, MaxVars> &clause) const {
             return clause.hash;
         }
     };
