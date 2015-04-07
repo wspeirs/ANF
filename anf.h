@@ -9,36 +9,59 @@
 #include <unordered_map>
 #include <functional>
 #include <vector>
-#include <bitset>
+// #include <bitset>
 #include <sstream>
 #include <iterator>
 
+#define BOOST_DYNAMIC_BITSET_DONT_USE_FRIENDS
+#include <boost/dynamic_bitset.hpp>
+#include <boost/functional/hash.hpp>
+
+#include <chrono>
+
 using namespace std;
 
+using boost::dynamic_bitset;
+
+
+typedef chrono::high_resolution_clock clock_;
+typedef chrono::duration<double, ratio<1> > second_;
+
+namespace boost {
+    template <typename B, typename A>
+    size_t hash_value(const boost::dynamic_bitset<B, A>& bs) {
+        return boost::hash_value(bs.m_bits);
+    }
+}
 
 template<typename Symbol, size_t MaxVars>
 struct Clause {
     typedef unordered_map<Symbol, size_t> VariableLookup;
+    typedef dynamic_bitset<> bit_t;
+    //typedef bitset<MaxVars> bit_t;
 
     static VariableLookup var_lookup;
     static size_t var_count;
     static Symbol reverse_lookup[MaxVars];
-    bitset<MaxVars> bits;
+    //bit_t bits;
+    bit_t bits;
     size_t c_hash;
-
 
     template<typename S, size_t M>
     friend bool operator==(const Clause<S, M> &lhs, const Clause<S, M> &rhs);
 
     template<typename S, size_t M>
+    friend bool operator<(const Clause<S, M> &lhs, const Clause<S, M> &rhs);
+
+    template<typename S, size_t M>
     friend ostream& operator<<(ostream &output, const Clause<S, M> &clause);
 
 
-    inline Clause() : bits(), c_hash(0) { }
+    inline Clause() : bits(MaxVars), c_hash(0) { }
 
-    inline Clause(const bitset<MaxVars> &bits) : bits(bits), c_hash(hash<bitset<MaxVars> >()(bits)) { }
+    inline Clause(const bit_t &bits) : bits(bits), c_hash(boost::hash_value<>(bits)) { }
 
-    inline Clause(const Symbol &var) {
+    inline Clause(const Symbol &var) : bits(MaxVars) {
         auto bit_it = var_lookup.find(var);
 
         if(bit_it == var_lookup.end()) {
@@ -48,7 +71,7 @@ struct Clause {
 
         bits.set(bit_it->second);
 
-        c_hash = std::hash<Symbol>()(var);
+        c_hash = boost::hash_value<>(bits);
     }
 
     string to_string() const {
@@ -83,6 +106,11 @@ Symbol Clause<Symbol, MaxVars>::reverse_lookup[MaxVars];
 template<typename S, size_t M>
 inline bool operator==(const Clause<S, M> &lhs, const Clause<S, M> &rhs) {
     return lhs.bits == rhs.bits;
+}
+
+template<typename S, size_t M>
+inline bool operator<(const Clause<S, M> &lhs, const Clause<S, M> &rhs) {
+    return lhs.bits < rhs.bits;
 }
 
 template<typename S, size_t M>
@@ -125,7 +153,7 @@ public:
         equation.emplace(Clause<Symbol, MaxVars>(var));
     }
 
-    basic_anf XOR(const basic_anf &rhs) const {
+    basic_anf* XOR(const basic_anf &rhs) const {
         Equation ret(size() + rhs.size());
 
         const auto end = equation.end();
@@ -141,11 +169,19 @@ public:
                 ret.emplace(e);
         }
 
-        return basic_anf<Symbol, MaxVars>(ret);
+        return new basic_anf<Symbol, MaxVars>(ret);
     }
 
-    basic_anf AND(const basic_anf &rhs) const {
-        Equation ret(size() * rhs.size());
+    basic_anf* AND(const basic_anf &rhs) const {
+        chrono::time_point<clock_> start, end;
+
+        start = clock_::now();
+        Equation ret;
+        
+        ret.max_load_factor(1);
+        ret.reserve(size() * rhs.size());
+        
+        size_t before = ret.bucket_count();
 
         for(auto clause1 : equation) {
             for(auto clause2 : rhs.equation) {
@@ -159,37 +195,51 @@ public:
             }
         }
 
-        return basic_anf<Symbol, MaxVars>(ret);
+        end = clock_::now();
+
+        size_t after = ret.bucket_count();
+        
+        //cout << "AND " << size() << " by " << rhs.size() << " to " << ret.size() << " in " << chrono::duration_cast<second_>(end-start).count() << "s" << endl;
+        
+        if(before != after)
+            cout << "REHASHED: " << before << " -> " << after << endl;
+        
+        return new basic_anf<Symbol, MaxVars>(ret);
     }
 
-    inline basic_anf NOT() const {
+    inline basic_anf* NOT() const {
         return this->XOR(basic_anf());
     }
 
-    inline basic_anf OR(const basic_anf &rhs) const {
-        return this->XOR(rhs).XOR(this->AND(rhs));
+    inline basic_anf* OR(const basic_anf &rhs) const {
+        return this->XOR(rhs)->XOR(*(this->AND(rhs)));
     }
 
     inline size_t size() const {
         return equation.size();
     }
+    
+    string to_string() const {
+        if(size() == 0)
+            return "";
+        
+        auto it = equation.begin();
+        stringstream ss;
+        
+        for(size_t i=0; i < size()-1; ++i) {
+            ss << *it << " ^ ";
+            ++it;
+        }
+        
+        ss << *it;
+        
+        return ss.str();
+    }
 };
 
 template<typename S, size_t M>
 inline ostream& operator<<(ostream &output, const basic_anf<S, M> &eq) {
-    if(eq.size() == 0)
-        return output;
-
-    auto it = eq.equation.begin();
-
-    for(size_t i=0; i < eq.size()-1; ++i) {
-        output << *it << " ^ ";
-        ++it;
-    }
-
-    output << *it;
-
-    return output;
+    return output << eq.to_string();
 }
 
 template<typename S, size_t M>
